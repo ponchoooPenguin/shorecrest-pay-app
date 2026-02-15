@@ -224,9 +224,13 @@ def parse_invoice(text: str) -> InvoiceData:
         else:
             current_payment = total_completed * Decimal('0.9')
     
-    if total_completed and not retainage:
-        # Retainage is 10% of total as last resort
-        retainage = total_completed * Decimal('0.1')
+    if not retainage:
+        if total_completed:
+            # Retainage is 10% of total completed
+            retainage = total_completed * Decimal('0.1')
+        elif current_payment:
+            # Fallback: 11.11% of payment due (10/90 ratio)
+            retainage = (current_payment * Decimal('0.1111')).quantize(Decimal('0.01'))
     
     # Try to extract any existing stamp data
     stamp_data = extract_existing_stamp(text)

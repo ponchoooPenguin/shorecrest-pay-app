@@ -363,31 +363,39 @@ def main():
                 except:
                     amount_due = 0.0
                 
-                # Retainage with % calculator
-                ret_col1, ret_col2 = st.columns([2, 1])
-                with ret_col1:
+                # Initialize retainage from session state or data
+                if 'calc_retainage' not in st.session_state:
+                    st.session_state.calc_retainage = float(data.retainage)
+                
+                # Show % calculator only if vendor wasn't auto-matched
+                if not st.session_state.matched_vendor:
+                    ret_col1, ret_col2 = st.columns([2, 1])
+                    with ret_col2:
+                        ret_pct = st.selectbox(
+                            "Calc %",
+                            options=["—", "5%", "10%", "15%", "20%"],
+                            index=0,
+                            help="Auto-calculate retainage as % of Amount Due"
+                        )
+                        if ret_pct != "—" and amount_due > 0:
+                            pct_val = float(ret_pct.replace("%", "")) / 100
+                            st.session_state.calc_retainage = round(amount_due * pct_val, 2)
+                    
+                    with ret_col1:
+                        retainage_str = st.text_input(
+                            "Retainage ($)",
+                            value=f"{st.session_state.calc_retainage:,.2f}"
+                        )
+                else:
                     retainage_str = st.text_input(
                         "Retainage ($)",
-                        value=f"{float(data.retainage):,.2f}",
-                        key="retainage_input"
+                        value=f"{float(data.retainage):,.2f}"
                     )
-                    try:
-                        retainage = float(retainage_str.replace(",", "").replace("$", ""))
-                    except:
-                        retainage = 0.0
                 
-                with ret_col2:
-                    st.markdown("<br>", unsafe_allow_html=True)  # Spacing
-                    ret_pct = st.selectbox(
-                        "% of Due",
-                        options=["—", "5%", "10%", "15%", "20%"],
-                        index=0,
-                        help="Auto-calculate retainage as % of Amount Due",
-                        key="ret_pct_select"
-                    )
-                    if ret_pct != "—" and amount_due > 0:
-                        pct_val = float(ret_pct.replace("%", "")) / 100
-                        retainage = round(amount_due * pct_val, 2)
+                try:
+                    retainage = float(retainage_str.replace(",", "").replace("$", ""))
+                except:
+                    retainage = 0.0
             
             # Stamp Preview
             st.markdown("---")

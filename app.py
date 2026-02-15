@@ -297,12 +297,18 @@ def main():
                 st.markdown(f"**File:** `{st.session_state.filename}`")
             with file_col2:
                 if st.button("🔄 Re-scan", help="Re-extract data from document"):
-                    invoice_data, matched_vendor = process_invoice(
+                    # Clear cached values
+                    for key in ['calc_retainage', 'retainage_value']:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    # Re-process
+                    new_invoice_data, new_matched_vendor = process_invoice(
                         st.session_state.pdf_bytes,
                         st.session_state.filename
                     )
-                    st.session_state.invoice_data = invoice_data
-                    st.session_state.matched_vendor = matched_vendor
+                    st.session_state.invoice_data = new_invoice_data
+                    st.session_state.matched_vendor = new_matched_vendor
+                    st.toast("🔄 Document re-scanned!")
                     st.rerun()
             
             if st.session_state.matched_vendor:
@@ -356,46 +362,57 @@ def main():
             with c2:
                 amount_str = st.text_input(
                     "Amount Due ($)",
-                    value=f"{float(data.amount_due):,.2f}"
+                    value=f"{float(data.amount_due):,.2f}",
+                    key="amount_due_input"
                 )
                 try:
                     amount_due = float(amount_str.replace(",", "").replace("$", ""))
                 except:
                     amount_due = 0.0
                 
-                # Initialize retainage from session state or data
-                if 'calc_retainage' not in st.session_state:
-                    st.session_state.calc_retainage = float(data.retainage)
+                # Initialize retainage value in session state if not set
+                if 'retainage_value' not in st.session_state:
+                    st.session_state.retainage_value = float(data.retainage)
                 
                 # Show % calculator only if vendor wasn't auto-matched
                 if not st.session_state.matched_vendor:
                     ret_col1, ret_col2 = st.columns([2, 1])
-                    with ret_col2:
-                        ret_pct = st.selectbox(
-                            "Calc %",
-                            options=["—", "5%", "10%", "15%", "20%"],
-                            index=0,
-                            help="Auto-calculate retainage as % of Amount Due"
-                        )
-                        if ret_pct != "—" and amount_due > 0:
-                            pct_val = float(ret_pct.replace("%", "")) / 100
-                            st.session_state.calc_retainage = round(amount_due * pct_val, 2)
-                    
                     with ret_col1:
                         retainage_str = st.text_input(
                             "Retainage ($)",
-                            value=f"{st.session_state.calc_retainage:,.2f}"
+                            value=f"{st.session_state.retainage_value:,.2f}",
+                            key="retainage_input"
                         )
+                    with ret_col2:
+                        ret_pct = st.selectbox(
+                            "% Calc",
+                            options=["—", "5%", "10%", "15%", "20%"],
+                            index=0,
+                            help="Calculate from Amount Due"
+                        )
+                    
+                    # If user selected a %, calculate and update
+                    if ret_pct != "—" and amount_due > 0:
+                        pct_val = float(ret_pct.replace("%", "")) / 100
+                        calculated = round(amount_due * pct_val, 2)
+                        st.session_state.retainage_value = calculated
+                        retainage = calculated
+                        st.info(f"📊 {ret_pct} of ${amount_due:,.2f} = **${calculated:,.2f}**")
+                    else:
+                        try:
+                            retainage = float(retainage_str.replace(",", "").replace("$", ""))
+                        except:
+                            retainage = 0.0
                 else:
                     retainage_str = st.text_input(
                         "Retainage ($)",
-                        value=f"{float(data.retainage):,.2f}"
+                        value=f"{float(data.retainage):,.2f}",
+                        key="retainage_input_matched"
                     )
-                
-                try:
-                    retainage = float(retainage_str.replace(",", "").replace("$", ""))
-                except:
-                    retainage = 0.0
+                    try:
+                        retainage = float(retainage_str.replace(",", "").replace("$", ""))
+                    except:
+                        retainage = 0.0
             
             # Stamp Preview
             st.markdown("---")

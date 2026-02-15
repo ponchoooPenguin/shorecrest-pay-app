@@ -180,11 +180,35 @@ def show_progress(current_step):
     st.markdown(html, unsafe_allow_html=True)
 
 
+def extract_vendor_from_filename(filename: str) -> str:
+    """Try to extract vendor name from filename as fallback."""
+    # Remove extension and common suffixes
+    name = filename.rsplit('.', 1)[0]
+    # Remove common patterns like "PA#1", "Invoice", dates, etc.
+    import re
+    name = re.sub(r'[-_]?(PA|Pay\s*App(lication)?|Invoice|INV)[-_#]?\d*', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'[-_]?\d{4}[-_]?\d{2}[-_]?\d{2}', '', name)  # Remove dates
+    name = re.sub(r'[-_]+', ' ', name).strip()  # Replace separators with spaces
+    return name if len(name) > 2 else ""
+
+
 def process_invoice(pdf_bytes: bytes, filename: str):
     with st.spinner("Reading invoice..."):
         text = extract_text_from_pdf(pdf_bytes=pdf_bytes)
         invoice_data = parse_invoice(text)
         com_id, cost_code, matched_vendor = lookup_vendor(invoice_data.vendor_name)
+        
+        # Fallback: try to match vendor from filename if OCR failed
+        if not matched_vendor:
+            filename_vendor = extract_vendor_from_filename(filename)
+            if filename_vendor:
+                com_id_fb, cost_code_fb, matched_vendor_fb = lookup_vendor(filename_vendor)
+                if matched_vendor_fb:
+                    matched_vendor = matched_vendor_fb
+                    com_id = com_id_fb or com_id
+                    cost_code = cost_code_fb or cost_code
+                    invoice_data.vendor_name = filename_vendor
+        
         if com_id:
             invoice_data.commitment_id = com_id
         if cost_code:
@@ -267,12 +291,24 @@ def main():
             </div>
             """, unsafe_allow_html=True)
             
-            st.markdown(f"**File:** `{st.session_state.filename}`")
+            # File info and re-scan option
+            file_col1, file_col2 = st.columns([3, 1])
+            with file_col1:
+                st.markdown(f"**File:** `{st.session_state.filename}`")
+            with file_col2:
+                if st.button("🔄 Re-scan", help="Re-extract data from document"):
+                    invoice_data, matched_vendor = process_invoice(
+                        st.session_state.pdf_bytes,
+                        st.session_state.filename
+                    )
+                    st.session_state.invoice_data = invoice_data
+                    st.session_state.matched_vendor = matched_vendor
+                    st.rerun()
             
             if st.session_state.matched_vendor:
                 st.success(f"✓ Vendor matched: **{st.session_state.matched_vendor}**")
             else:
-                st.warning("⚠️ Vendor not auto-matched — please select from dropdown")
+                st.warning("⚠️ Vendor not auto-matched — please select from dropdown or check filename")
             
             st.markdown("")
             
@@ -327,14 +363,31 @@ def main():
                 except:
                     amount_due = 0.0
                 
-                retainage_str = st.text_input(
-                    "Retainage ($)",
-                    value=f"{float(data.retainage):,.2f}"
-                )
-                try:
-                    retainage = float(retainage_str.replace(",", "").replace("$", ""))
-                except:
-                    retainage = 0.0
+                # Retainage with % calculator
+                ret_col1, ret_col2 = st.columns([2, 1])
+                with ret_col1:
+                    retainage_str = st.text_input(
+                        "Retainage ($)",
+                        value=f"{float(data.retainage):,.2f}",
+                        key="retainage_input"
+                    )
+                    try:
+                        retainage = float(retainage_str.replace(",", "").replace("$", ""))
+                    except:
+                        retainage = 0.0
+                
+                with ret_col2:
+                    st.markdown("<br>", unsafe_allow_html=True)  # Spacing
+                    ret_pct = st.selectbox(
+                        "% of Due",
+                        options=["—", "5%", "10%", "15%", "20%"],
+                        index=0,
+                        help="Auto-calculate retainage as % of Amount Due",
+                        key="ret_pct_select"
+                    )
+                    if ret_pct != "—" and amount_due > 0:
+                        pct_val = float(ret_pct.replace("%", "")) / 100
+                        retainage = round(amount_due * pct_val, 2)
             
             # Stamp Preview
             st.markdown("---")

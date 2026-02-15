@@ -121,11 +121,35 @@ def extract_current_payment_due(text: str) -> Optional[Decimal]:
     return None
 
 
-def extract_retainage(text: str) -> Optional[Decimal]:
+def extract_total_earned_less_retainage(text: str) -> Optional[Decimal]:
+    """
+    Extract "TOTAL EARNED LESS RETAINAGE" from AIA G702 form.
+    This is line 6 on the form.
+    """
+    patterns = [
+        r'TOTAL\s+EARNED\s+LESS\s+RETAINAGE[^$]*\$\s*([\d,]+\.?\d*)',
+        r'6\.\s*TOTAL\s+EARNED\s+LESS\s+RETAINAGE.*?\$\s*([\d,]+\.?\d*)',
+        r'Line\s+6.*?\$\s*([\d,]+\.?\d*)',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return parse_currency(match.group(1))
+    
+    return None
+
+
+def extract_retainage(text: str, total_completed: Optional[Decimal] = None) -> Optional[Decimal]:
     """
     Extract retainage amount from AIA G702 form.
-    Usually 10% of total completed.
+    
+    Tries multiple methods:
+    1. Explicit retainage value in text
+    2. Calculate: Total Completed - Total Earned Less Retainage
+    3. Assume 10% of total completed
     """
+    # Method 1: Look for explicit retainage value
     patterns = [
         # Look for stamp RET first (most reliable)
         r'RET:\s*\$\s*([\d,]+\.?\d*)',
@@ -141,6 +165,13 @@ def extract_retainage(text: str) -> Optional[Decimal]:
             amount = parse_currency(match.group(1))
             if amount and amount > 0:
                 return amount
+    
+    # Method 2: Calculate from Total Completed - Total Earned Less Retainage
+    total_earned_less_ret = extract_total_earned_less_retainage(text)
+    if total_completed and total_earned_less_ret:
+        calculated_retainage = total_completed - total_earned_less_ret
+        if calculated_retainage > 0:
+            return calculated_retainage
     
     return None
 
@@ -181,15 +212,20 @@ def parse_invoice(text: str) -> InvoiceData:
     # Extract amounts
     total_completed = extract_total_completed(text)
     current_payment = extract_current_payment_due(text)
-    retainage = extract_retainage(text)
+    
+    # Extract retainage (pass total_completed for fallback calculation)
+    retainage = extract_retainage(text, total_completed)
     
     # Calculate if not explicitly found
     if total_completed and not current_payment:
-        # Amount due is 90% of total
-        current_payment = total_completed * Decimal('0.9')
+        # Amount due is 90% of total (or total - retainage if we have retainage)
+        if retainage:
+            current_payment = total_completed - retainage
+        else:
+            current_payment = total_completed * Decimal('0.9')
     
     if total_completed and not retainage:
-        # Retainage is 10% of total
+        # Retainage is 10% of total as last resort
         retainage = total_completed * Decimal('0.1')
     
     # Try to extract any existing stamp data
